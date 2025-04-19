@@ -68,21 +68,26 @@ nano Dockerfile
 
 FROM debian:12
 
-RUN apt-get update && \
-    apt-get install -y openssh-server sudo python3 && \
-    useradd -m -s /bin/bash leo && \
-    mkdir /home/leo/.ssh && \
-    chown -R leo:leo /home/leo/.ssh && \
+RUN apt-get update 
+    apt-get install -y openssh-server sudo python3 
+    useradd -m -s /bin/bash leo 
+    mkdir /home/leo/.ssh 
+    chown -R leo:leo /home/leo/.ssh 
     chmod 700 /home/leo/.ssh
 
 COPY authorized_keys /home/leo/.ssh/authorized_keys
-RUN chown leo:leo /home/leo/.ssh/authorized_keys && \
+RUN chown leo:leo /home/leo/.ssh/authorized_keys 
     chmod 600 /home/leo/.ssh/authorized_keys
 
 RUN mkdir /var/run/sshd
 EXPOSE 22
 CMD ["/usr/sbin/sshd", "-D"]
 ```
+```bash
+cd /root/sshserv_leo
+docker build -t sshserv_leo .
+```
+
 #### Clé SSH pour l'utilisateur leo + copie de la clé publique dans le répertoire sshserv_leo
 ```bash
 ssh-keygen -t ed25519 -C "leo@docker"
@@ -90,6 +95,27 @@ mkdir -p ~/sshserv_leo
 cat ~/.ssh/id_ed25519.pub > ~/sshserv_leo/authorized_keys
 ls -l ~/sshserv_leo/authorized_keys
 ```
+#### Ensuite on se connecte au conteneur en ssh
+```bash
+docker run -d --name sshserv_leo -p 2222:22 sshserv_leo
+```
+#### Connexion avec le compte leo
+```bash
+ssh leo@localhost -p 2222
+```
+#### Et via l'adresse ip de la machine 
+```bash
+ssh leo@192.168.23.135 -p 2222
+```
+#### La commande hostname identifie le nom de la machine utilisée et whoami affiche l'utilisateur connecté.
+
+```bash
+hostname
+........
+whoami
+```
+
+![whoami](https://github.com/user-attachments/assets/6a031caa-bcce-4184-b0ef-8223b96085f2)
 
 #### Création et modification du fichier docker-compose.yml permettant la simplification au niveau lancement de conteneurs.
 ```bash
@@ -127,7 +153,7 @@ nano Dockerfile
 FROM almalinux:9
 
 RUN yum install -y epel-release
-RUN yum update -y && \
+RUN yum update -y 
     yum install -y ansible sshpass python3
 
 ```
@@ -137,12 +163,7 @@ docker build -t ansible_leo .
 docker run -it --rm --name ansible_leo_container --network host -v /root/sshserv_leo:/ansible ansible_leo /bin/bash
 
 ```
-#### Lancemenent manuel du conteneur ansible_leo
-``` bash
-docker build -t ansible_leo .
-docker run -it --rm --name ansible_leo_container --network host -v /root/sshserv_leo:/ansible ansible_leo /bin/bash
 
-```
 #### Vérification version Ansible
 ```bash 
 ansible --version
@@ -158,14 +179,21 @@ localhost ansible_host=localhost ansible_port=2222 ansible_user=leo ansible_ssh_
 ```bash
 
 ansible -i /ansible/inventory.ini ssh_servers -m ping
+
 ```
+#### Exemple message d'erreur
+![Exemple message d'errreur](https://github.com/Leo-Meneau/Leo-Meneau-Docker-Ansible-Gitlab-Challenge-Infra/blob/main/Exemple%20message%20d'erreur.png)
+#### Message confirmant le ping entre les deux conteneurs (ansible vers ssh).
+![Ping ansible vers ssh](https://github.com/user-attachments/assets/aea8eec7-0b9e-4470-ae98-e890654d876a)
+
+
 #### Arrêter et supprimer le conteneur existant si vous avez un problème de connexion au conteneur
 ```bash
 docker stop ansible_leo_container
 docker rm ansible_leo_container
-```
 
 #### Puis la commande d'en haut pour se connecter
+```
 
 ## 3. Create an Ansible playbook to configure an Nginx web server
 #### Configuration Ansible pour le déploiement du serveur nginx vers sshserv_leo grâce au playbook.yml
@@ -244,6 +272,10 @@ sudo nginx -t
 ```bash
 sudo nginx
 ```
+#### Status Nginx, nous pouvons voir que nginx est opérationnel
+![Status Nginx](https://github.com/user-attachments/assets/bd79eee9-bd05-478a-a3de-457b6033e316)
+
+
 #### Commande pour vérifier si nginx est bien sur le port 80.
 ```bash
 sudo ss -tulpn | grep :80
@@ -253,11 +285,12 @@ sudo ss -tulpn | grep :80
 ```bash
 curl http://172.18.0.2:80
 ```
+![Test page nginx](https://github.com/user-attachments/assets/897ebb9e-4a1f-4b4c-ab92-00e9267b4724)
 
 
 # ***4. Conclusion***
 
-Grâce à ce challenge j'ai pu mettre en place une situation dans un environnement docker, conteneur SSH et Ansible pour automatiser la configuration d’un environnement et déployer un serveur nginx via conteneur ansible vers conteneur ssh + test. Je pense avoir réussi les missions demandées, je suis fier de ce que j'ai pu faire car je connaissais seulement de nom Ansible. J'avais fait un exposé sur Ansible mais jamais utilisé auparavant. Je pense avoir atteint l'objectif, cela me motive davantage pour intégrer votre organisation en tant qu'alternant ingénieur intégrateur Système, Réseau & Sécurité.
+Grâce à ce challenge j'ai pu mettre en place une situation dans un environnement docker, conteneur SSH et Ansible pour automatiser la configuration d’un environnement et déployer un serveur nginx via conteneur ansible vers conteneur ssh + test. Je pense avoir réussi les missions demandées, je suis fier de ce que j'ai pu faire car je connaissais seulement de nom Ansible. J'avais fait un exposé sur Ansible mais jamais utilisé auparavant. Je pense avoir atteint l'objectif, cela me motive davantage pour intégrer votre organisation en tant qu'alternant ingénieur intégrateur Système, Réseau & Sécurité. Cette expérience a été enrichissante pour moi.
 
 # ***5. Dictionnaire*** 
 
@@ -286,7 +319,6 @@ Grâce à ce challenge j'ai pu mettre en place une situation dans un environneme
 
 
 # ***6. Sources***
-NE PAS OUBLIER D'AJOUTER DES SCREENS
 
 [Déployer Nginx sur Docker avec Ansible - BogoToBogo](https://www.bogotobogo.com/DevOps/Ansible/Ansible-Deploy-Nginx-to-Docker.php)
 
