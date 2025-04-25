@@ -4,12 +4,17 @@
 
 ## Déroulé
 
-#### ***1. Intitulé du challenge***  
-#### ***2. Informations complémentaires***  
-#### ***3. Étapes du challenge***  
-#### ***4. Conclusion***
-#### ***5. Dictionnaire***
-#### ***6. Sources***
+Intitulé du challenge
+
+Informations complémentaires
+
+Étapes du challenge
+
+Conclusion
+
+Dictionnaire
+
+Sources
 
 # ***1. Intitulé du challenge***
 
@@ -21,16 +26,29 @@
 
 # ***2. Informations complémentaires***
 
-- Conteneur ssh : sshserv_leo ; 172.17.0.2 connexion ssh hors mot de passe root et non-root ; port 22.
+- Conteneur ssh : sshserv_leo ; 172.17.0.2 connexion ssh hors mot de passe root et non-root ; port 22 ; mdp : leopass.
 
-- Conteneur Ansible sous AlmaLinux9 : ansible_leo_container ; port Nginx 80.
+- Conteneur Ansible sous AlmaLinux9 : ansible_leo ; 172.17.0.3 ; port Nginx 80.
 
 - Création de l'utilisateur leo (non-root) pour le sshserv_leo
 
+- Arborescence situation
+```
+/root/challenge-infra
+├── ansible-leo
+│   ├── ansible.cfg
+│   ├── Dockerfile
+│   ├── id_rsa
+│   ├── id_rsa.pub
+│   ├── inventory.ini
+│   └── playbook.yml
+├── docker-compose.yml
+└── ssh-leo
+    ├── Dockerfile
+    ├── entrypoint.sh
+    └── id_rsa.pub
 
-
-
-
+```
 
 # ***3. Étapes du challenge*** 
 ## Create a SSH server Docker image base on Debian-12 image
@@ -51,62 +69,168 @@
 su - 
 apt update
 apt upgrade
+apt install tree
 apt install -y docker.io docker-compose
-systemctl enable --now docker
 usermod -aG docker $USER
-apt install -y docker-compose
 systemctl start docker
 systemctl enable docker
 docker --version
 ```
-#### Création du répertoire et du Dockerfile pour le conteneur SSH ainsi que du contenu du Dockerfile 
+#### Création des répertoires ssh-leo et ansible-leo et des Clés SSH
 ```bash
-mkdir /root/sshserv_leo
-cd /root/sshserv_leo
-touch Dockerfile
-nano Dockerfile
+mkdir -p challenge-infra/{ssh-leo,ansible-leo}
+cd challenge-infra
+ssh-keygen -t rsa -b 4096 -f ansible-leo/id_rsa -N ""
+cp ansible-leo/id_rsa.pub ssh-leo/id_rsa.pub
+chmod 600 ansible-leo/id_rsa
+chmod 644 ssh-leo/id_rsa.pub
+```
+#### Configurations fichiers (Dockerfile ssh, Dockerfile ansible, playbook.yml, inventory.inventory.ini...)
 
+```bash
+nano /root/challenge-infra/ssh-leo/Dockerfile
+
+```
+```bash
 FROM debian:12
 
-RUN apt-get update 
-    apt-get install -y openssh-server sudo python3 
-    useradd -m -s /bin/bash leo 
-    mkdir /home/leo/.ssh 
-    chown -R leo:leo /home/leo/.ssh 
-    chmod 700 /home/leo/.ssh
+RUN apt-get update && \
+    apt-get install -y openssh-server sudo && \
+    apt-get clean
 
-COPY authorized_keys /home/leo/.ssh/authorized_keys
-RUN chown leo:leo /home/leo/.ssh/authorized_keys 
-    chmod 600 /home/leo/.ssh/authorized_keys
+RUN useradd -m -s /bin/bash leo && \
+    echo 'leo:leopass' | chpasswd && \
+    adduser leo sudo
 
-RUN mkdir /var/run/sshd
+RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+
+COPY entrypoint.sh /entrypoint.sh
+
+RUN chmod +x /entrypoint.sh
+
 EXPOSE 22
-CMD ["/usr/sbin/sshd", "-D"]
-```
-```bash
-cd /root/sshserv_leo
-docker build -t sshserv_leo .
+
+ENTRYPOINT ["/entrypoint.sh"]
+
+
 ```
 
-#### Clé SSH pour l'utilisateur leo + copie de la clé publique dans le répertoire sshserv_leo
 ```bash
-ssh-keygen -t ed25519 -C "leo@docker"
-mkdir -p ~/sshserv_leo
-cat ~/.ssh/id_ed25519.pub > ~/sshserv_leo/authorized_keys
-ls -l ~/sshserv_leo/authorized_keys
+nano /root/challenge-infra/ansible-leo/Dockerfile
+
 ```
-#### Ensuite on se connecte au conteneur en ssh
+
 ```bash
-docker run -d --name sshserv_leo -p 2222:22 sshserv_leo
+FROM almalinux:9
+
+RUN dnf install -y epel-release && \
+    dnf install -y ansible openssh-clients iputils && \
+    useradd -m ansible && \
+    mkdir -p /home/ansible/.ssh
+
+COPY id_rsa /home/ansible/.ssh/id_rsa
+COPY ansible.cfg inventory.ini playbook.yml /home/ansible/
+
+RUN chmod 600 /home/ansible/.ssh/id_rsa && chown -R ansible:ansible /home/ansible
+
+USER ansible
+WORKDIR /home/ansible
+
+CMD ["tail", "-f", "/dev/null"]
+
+
 ```
-#### Connexion avec le compte leo
 ```bash
-ssh leo@localhost -p 2222
+nano /root/challenge-infra/ansible-leo/inventory.ini
+
 ```
-#### Et via l'adresse ip de la machine 
 ```bash
-ssh leo@192.168.23.135 -p 2222
+[ssh_target]
+sshserv_leo ansible_ssh_user=ansible ansible_ssh_private_key_file=/home/ansible/.ssh/id_rsa
 ```
+
+```bash
+nano /root/challenge-infra/ansible-leo/playbook.yml
+```
+
+```bash
+- name: Installer Nginx
+  hosts: ssh_target
+  become: yes
+  tasks:
+    - name: Mettre à jour les paquets
+      apt:
+        update_cache: yes
+        upgrade: yes
+      when: ansible_facts['distribution'] == "Ubuntu" or ansible_facts['distribution'] == "Debian"
+
+    - name: Installer Nginx
+      apt:
+        name: nginx
+        state: present
+      when: ansible_facts['distribution'] == "Ubuntu" or ansible_facts['distribution'] == "Debian"
+
+    - name: Démarrer et activer le service Nginx
+      service:
+        name: nginx
+        state: started
+        enabled: yes
+```
+```bash
+nano /root/challenge-infra/ansible-leo/ansible.cfg
+```
+
+```bash
+#[defaults]
+#inventory = ./inventory.ini
+#host_key_checking = False
+
+
+[defaults]
+inventory = ./inventory.ini
+host_key_checking = False
+ask_sudo_pass = True
+
+```
+
+```bash
+nano /root/challenge-infra/docker-compose.yml
+```
+
+```bash
+version: '3.8'
+
+services:
+  ssh-leo:
+    build: ./ssh-leo
+    container_name: sshserv_leo
+    hostname: ssh-leo
+    ports:
+      - "2222:22"
+
+  ansible-leo:
+    build: ./ansible-leo
+    container_name: ansible_leo
+    depends_on:
+      - ssh-leo
+
+```
+
+```bash
+nano /root/challenge-infra/ssh-leo/entrypoint.sh
+```
+
+```bash
+#!/bin/bash
+set -e
+mkdir -p /run/sshd
+exec /usr/sbin/sshd -D
+```
+```bash
+chmod +x ssh-leo/entrypoint.sh
+```
+
 #### La commande hostname identifie le nom de la machine utilisée et whoami affiche l'utilisateur connecté.
 
 ```bash
@@ -117,24 +241,17 @@ whoami
 
 ![whoami](https://github.com/user-attachments/assets/6a031caa-bcce-4184-b0ef-8223b96085f2)
 
-#### Création et modification du fichier docker-compose.yml permettant la simplification au niveau lancement de conteneurs.
-```bash
-nano /root/sshserv_leo/docker-compose.yml
 
-version: '3'
-services:
-  ssh_server:
-    build: .
-    container_name: sshserv_leo
-    ports:
-      - "2222:22"
-    volumes:
-      - ./authorized_keys:/home/leo/.ssh/authorized_keys
-    restart: unless-stopped
-```
 #### Ensuite il suffit de faire cette commande pour executer
 ```bash 
 docker-compose up -d
+docker ps 
+docker-compose down si vous souhaitez l'arrêter.
+```
+docker images
+#### Ensuite on peut se connecter au conteneur ssh en tant que leo
+```bash
+ssh leo@localhost -p 2222
 ```
 ## 2. Create an Ansible Docker image based on AlmaLinux-9 image
 
@@ -144,56 +261,43 @@ docker-compose up -d
 |  AlmaLinux   |  ====>   | ansible_controller |
 └──────────────┘          └────────────────────┘
 ```
-#### Création du conteneur ansible_leo avec AlmaLinux9 et vérification de la version Ansible
-```bash 
-mkdir ~/ansible_leo
-cd ~/ansible_leo
-nano Dockerfile
-
-FROM almalinux:9
-
-RUN yum install -y epel-release
-RUN yum update -y 
-    yum install -y ansible sshpass python3
-
-```
-#### Ajout du conteneur Ansible
-```bash 
-docker build -t ansible_leo .
-docker run -it --rm --name ansible_leo_container --network host -v /root/sshserv_leo:/ansible ansible_leo /bin/bash
-
-```
+#### Grâce au docker-compose up -d , cela nous permet de démarrer les conteneurs. Comme j'ai refait plusieurs fos le challenge je me suis permis d'optimiser ça.
 
 #### Vérification version Ansible
 ```bash 
 ansible --version
 ```
-#### Création du fichier inventory.ini pour Ansible Il faut créer le fichier inventory.ini dans le conteneur ansible_leo_container puis dans le répertoire ansible:
+#### Il faut maintenant tester la connexion et le ping entre les deux conteneurs, j'ai eu quelques soucis de permission donc voici les commandes de modification de permission et déplacement de fichiers. Il y a quelques modifications à faire dans les conteneurs si cela ne fonctionne pas
+
 ```bash
-[ssh_servers]
-localhost ansible_host=localhost ansible_port=2222 ansible_user=leo ansible_ssh_private_key_file=/root/.ssh/id_ed25519
+ansible -i "sshserv_leo, ansible_host=ssh-leo ansible_user=leo ansible_ssh_private_key_file=/root/.ssh/id_rsa" -m ping
+chmod 600 /root/.ssh/id_rsa
+chmod 600 ~/challenge-infra/ansible-leo/id_rsa
+docker exec -it ansible_leo bash
+ls -l /root/.ssh/id_rsa
+ssh -i /home/ansible/ansible-leo/id_rsa leo@ssh-leo
+docker exec -it ansible_leo bash
+docker cp ~/challenge-infra/ansible-leo/id_rsa ansible_leo:/home/ansible/ansible-leo/id_rsa
+docker exec -it ansible_leo bash
+docker cp ~/challenge-infra/ansible-leo/id_rsa ansible_leo:/home/ansible/.ssh/id_rsa
+docker exec -it ansible_leo bash
+mkdir -p /home/ansible/.ssh
+docker exec -it ansible_leo bash
+ansible -i inventory.ini ssh_target -m ping
+
 ```
-  
+
 #### Une fois que vous êtes dans le conteneur Ansible nous pouvons faire le test du ping. (Il faut vérifier si tout est bon dans les fichiers et conteneur sinon vous aurez un message d'erreur en rouge).
 
-```bash
 
+```bash
 ansible -i /ansible/inventory.ini ssh_servers -m ping
 
 ```
-#### Exemple message d'erreur
 ![Exemple message d'errreur](https://github.com/Leo-Meneau/Leo-Meneau-Docker-Ansible-Gitlab-Challenge-Infra/blob/main/Exemple%20message%20d'erreur.png)
 #### Message confirmant le ping entre les deux conteneurs (ansible vers ssh).
 ![Ping ansible vers ssh](https://github.com/user-attachments/assets/aea8eec7-0b9e-4470-ae98-e890654d876a)
 
-
-#### Arrêter et supprimer le conteneur existant si vous avez un problème de connexion au conteneur
-```bash
-docker stop ansible_leo_container
-docker rm ansible_leo_container
-
-#### Puis la commande d'en haut pour se connecter
-```
 
 ## 3. Create an Ansible playbook to configure an Nginx web server
 #### Configuration Ansible pour le déploiement du serveur nginx vers sshserv_leo grâce au playbook.yml
@@ -214,21 +318,8 @@ docker rm ansible_leo_container
 ```bash
 mkdir -p /ansible/roles/nginx/tasks/main.yml
 ```
-#### Il faut créer le fichier playbook.yml dans le conteneur ansible_leo_container puis dans le répertoire ansible.
+## Ici c'est la partie Nginx mais dans ce second test je n'ai pas réussi à reproduire comme l'ancienne version que j'avais fait pourtant le déploiement avait fonctionné. Je laisse cette étape pour montrer que je l'ai quand même fait et réussi 1 fois.
 
-```bash
-
-nano /ansible/playbook.yml
-
-
-- name: Installer Nginx avec un rôle
-  hosts: sshserv_leo
-  become: yes
-  roles:
-    - nginx
-
-
-```
 #### Modification du fichier main.yml
 ```bash
 nano /ansible/roles/nginx/tasks/main.yml
@@ -290,7 +381,7 @@ curl http://172.18.0.2:80
 
 # ***4. Conclusion***
 
-Grâce à ce challenge j'ai pu mettre en place une situation dans un environnement docker, conteneur SSH et Ansible pour automatiser la configuration d’un environnement et déployer un serveur nginx via conteneur ansible vers conteneur ssh + test. Je pense avoir réussi les missions demandées, je suis fier de ce que j'ai pu faire car je connaissais seulement de nom Ansible. J'avais fait un exposé sur Ansible mais jamais utilisé auparavant. Je pense avoir atteint l'objectif, cela me motive davantage pour intégrer votre organisation en tant qu'alternant ingénieur intégrateur Système, Réseau & Sécurité. Cette expérience a été enrichissante pour moi.
+Grâce à ce challenge j'ai pu mettre en place une situation dans un environnement docker, conteneur SSH et Ansible pour automatiser la configuration d’un environnement et déployer un serveur nginx via conteneur ansible vers conteneur ssh + test. Je pense avoir réussi les missions demandées, je suis fier de ce que j'ai pu faire car je connaissais seulement de nom Ansible. J'avais fait un exposé sur Ansible mais jamais utilisé auparavant. Je pense avoir atteint l'objectif, cela me motive davantage pour intégrer votre organisation en tant qu'alternant ingénieur intégrateur Système, Réseau & Sécurité. Cette expérience a été enrichissante pour moi. Avec quelques soucis niveau temps dû à mes trajets et travail (alternance, école), je n'ai pas pu tout exploiter et essayé de nouveau la partie nginx sur mon nouveau lab. Désormais je connais le principe de ce challenge, les fichiers de confnigurations, l'environnement docker car je l'ai refait plusieurs fois.
 
 # ***5. Dictionnaire*** 
 
@@ -298,23 +389,34 @@ Grâce à ce challenge j'ai pu mettre en place une situation dans un environneme
 
 - Nginx : Serveur web open source performant, souvent utilisé comme proxy inverse ou pour héberger des sites web.
 
-- Ansible : Outil de gestion de configuration et d'automatisation, basé sur SSH, qui permet de déployer et configurer des machines à distance.
+- Ansible : Outil de gestion de configuration et d'automatisation, basé sur ssh, qui permet de déployer et configurer des machines à distance.
 
 - YAML : Format de fichier lisible par l’humain, souvent utilisé pour décrire des configurations comme les playbooks Ansible.
 
 - AlmaLinux9 : Système d’exploitation Linux basé sur RHEL (Red Hat Enterprise Linux), compatible entreprise, souvent utilisé pour des serveurs en production.
 
+- docker-compose.yml : Fichier de configuration pour Docker Compose qui définit les services, réseaux et volumes nécessaires pour les conteneurs, incluant ssh-leo et ansible-leo.
+
+- inventory.ini : Fichier d'inventaire Ansible qui contient la liste des hôtes à gérer, avec leurs paramètres de connexion ssh (utilisateur, clé privée, etc.).
+
+- playbook.yml : Fichier YAML qui contient les instructions Ansible à exécuter sur les hôtes. Il définit des tâches comme l'installation de Nginx ou la gestion de services.
+
 
 | Commandes | Explication |
-|----------|-------------|
-| `docker build -t ssh_server .` | Construit une image Docker nommée `ssh_server` à partir du Dockerfile. |
-| `docker run -d --name sshserv_leo -p 2222:22 ssh_server` | Lance un conteneur et redirige le port 22 vers 2222. |
-| `ssh leo@localhost -p 2222` | Se connecte en SSH à `sshserv_leo` sur le port 2222 avec l’utilisateur `leo`. |
-| `localhost ansible_host=localhost ansible_port=2222 ansible_user=leo ansible_ssh_private_key_file=/root/.ssh/id_ed25519` | Ligne d'inventaire Ansible pour se connecter au conteneur via clé privée. |
-| `ansible -i /root/sshserv_leo/inventory.ini ssh_servers -m ping` | Vérifie la connexion SSH avec Ansible vers le groupe `ssh_servers`. |
-| `docker-compose up -d` | Lance tous les services définis dans `docker-compose.yml` en arrière-plan. |
-| `ansible -i /ansible/inventory.ini ssh_servers -m ping` | Ping tous les serveurs du groupe `ssh_servers` via Ansible. |
-| `ansible-playbook -i /ansible/inventory.ini /ansible/playbook.yml` | Exécute un playbook pour configurer ou déployer sur les hôtes. |
+|-----------|-------------|
+| `mkdir -p challenge-infra/{ssh-leo,ansible-leo}` | Crée le répertoire `challenge-infra` avec les sous-répertoires `ssh-leo` et `ansible-leo`. |
+| `ssh-keygen -t rsa -b 4096 -f ansible-leo/id_rsa -N ""` | Crée une clé ssh rsa de 4096 bits pour `ansible-leo`. |
+| `cp ansible-leo/id_rsa.pub ssh-leo/id_rsa.pub` | Copie la clé publique ssh de `ansible-leo` vers `ssh-leo`. |
+| `chmod 600 ansible-leo/id_rsa` | Définit les bonnes permissions pour la clé privée ssh de `ansible-leo`. |
+| `docker-compose up -d` | Lance les conteneurs définis dans le fichier `docker-compose.yml` en mode détaché. |
+| `docker ps` | Affiche la liste des conteneurs en cours d'exécution. |
+| `docker exec -it ansible_leo bash` | Ouvre une session interactive Bash dans le conteneur `ansible_leo`. |
+| `ansible -i "sshserv_leo, ansible_host=ssh-leo ansible_user=leo ansible_ssh_private_key_file=/root/.ssh/id_rsa" -m ping` | Vérifie la connexion sshavec Ansible vers `ssh-leo`. |
+| `docker cp ~/challenge-infra/ansible-leo/id_rsa ansible_leo:/home/ansible/.ssh/id_rsa` | Copie la clé privée ssh dans le conteneur `ansible_leo` pour l'utilisateur `ansible`. |
+| `docker exec -it --user root ansible_leo bash` | Ouvre une session Bash dans le conteneur `ansible_leo` en tant qu'utilisateur `root`. |
+| `docker exec -it ssh-leo bash` | Ouvre une session interactive Bash dans le conteneur `ssh-leo`. |
+| `ansible-playbook -i /ansible/inventory.ini /ansible/playbook.yml` | Exécute un playbook Ansible pour déployer ou configurer les hôtes définis dans l'inventaire. |
+
 
 
 
