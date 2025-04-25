@@ -1,0 +1,15 @@
+/root/challenge-infra
+├── ansible-leo
+│   ├── ansible.cfg
+│   ├── Dockerfile
+│   ├── id_rsa
+│   ├── id_rsa.pub
+│   ├── inventory.ini
+│   └── playbook.yml
+├── docker-compose.yml
+└── ssh-leo
+    ├── Dockerfile
+    ├── entrypoint.sh
+    └── id_rsa.pub
+
+3 directories, 10 files
